@@ -376,9 +376,7 @@ function renderTable() {
       html += `<div class="history-future-sep"><span>ここから未来の予定</span></div>`;
     }
     const record = records[i];
-    const badge = record.type === "full"
-      ? '<span class="badge badge-full">全休</span>'
-      : `<span class="badge badge-partial">${getRecordTypeLabel(record)}</span>`;
+
     const hours = `${formatHours(calcRecordHours(record))} h`;
     const timeRange = record.type === "partial"
       ? `${record.startTime ?? "-"} - ${record.endTime ?? "-"}`
@@ -392,10 +390,7 @@ function renderTable() {
               <span>${formatDate(record.date)}</span>
             </div>
           </div>
-          <div class="history-cell history-type">
-            <span class="history-label">区分</span>
-            ${badge}
-          </div>
+
           <div class="history-cell history-hours num">
             <span class="history-label">取得時間</span>
             <span>${hours}</span>
