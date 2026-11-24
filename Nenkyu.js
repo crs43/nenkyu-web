@@ -527,23 +527,13 @@ function applyTimeDefaultsForType(type, mode) {
     return;
   }
 
-  if (type !== "partial") return;
-
-  if (mode === "start") {
+  if (type === "partial") {
     $("iStart").value = settings.workStart;
-    $("iEnd").value = settings.lunchStart;
-  } else if (mode === "end") {
-    $("iStart").value = settings.lunchEnd;
     $("iEnd").value = settings.workEnd;
   }
 }
 
-function syncRangeButtons() {
-  const mode = $("iRangeMode").value;
-  document.querySelectorAll("#rangeModeRow [data-range-mode]").forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.rangeMode === mode));
-  });
-}
+
 
 function syncFormHint() {
   const type = $("iType").value;
@@ -571,15 +561,11 @@ function syncFormHint() {
 
 function syncTypeInputs() {
   const type = $("iType").value;
-  const mode = $("iRangeMode").value;
   const settings = app.state.settings;
-  const isPartial = type === "partial";
-
-  $("rangeModeRow").classList.toggle("is-hidden", !isPartial);
 
   if (type === "full") {
-    $("iStart").value = "";
-    $("iEnd").value = "";
+    $("iStart").value = settings.workStart;
+    $("iEnd").value = settings.workEnd;
     $("iStart").disabled = true;
     $("iEnd").disabled = true;
   } else if (type === "am") {
@@ -592,22 +578,12 @@ function syncTypeInputs() {
     $("iEnd").value = settings.workEnd;
     $("iStart").disabled = true;
     $("iEnd").disabled = true;
-  } else if (mode === "start") {
-    $("iStart").value = settings.workStart;
-    if (!$("iEnd").value) $("iEnd").value = settings.lunchStart;
-    $("iStart").disabled = true;
-    $("iEnd").disabled = false;
-  } else if (mode === "end") {
-    $("iEnd").value = settings.workEnd;
-    if (!$("iStart").value) $("iStart").value = settings.lunchEnd;
-    $("iStart").disabled = false;
-    $("iEnd").disabled = true;
   } else {
     $("iStart").disabled = false;
     $("iEnd").disabled = false;
   }
 
-  syncRangeButtons();
+
   $("formErr").textContent = "";
   syncFormHint();
 }
@@ -1069,11 +1045,7 @@ function bindEvents() {
     });
   });
 
-  $("rangeModeRow").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-range-mode]");
-    if (!button) return;
-    setRangeMode(button.dataset.rangeMode);
-  });
+
 
   $("quickPatternList").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-pattern-index]");
