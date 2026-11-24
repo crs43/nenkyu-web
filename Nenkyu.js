@@ -103,7 +103,6 @@ function calcRecordHours(record) {
 
 function getRecordPeriod(record) {
   if (record.type !== "partial") return null;
-  if (record.period === "am" || record.period === "pm") return record.period;
 
   const settings = app.state.settings;
   if (record.startTime === settings.workStart && record.endTime === settings.lunchStart) return "am";
@@ -193,15 +192,11 @@ function normalizeSettings(rawSettings = {}) {
 
 function normalizeRecord(record) {
   const type = record.type === "partial" ? "partial" : "full";
-  const period = type === "partial" && (record.period === "am" || record.period === "pm")
-    ? record.period
-    : null;
 
   return {
     id: record.id ?? crypto.randomUUID(),
     date: record.date ?? todayStr(),
     type,
-    period,
     startTime: record.startTime ?? null,
     endTime: record.endTime ?? null,
     note: record.note ?? record.memo ?? ""
@@ -653,7 +648,6 @@ function getFormData() {
   return {
     date: $("iDate").value,
     type: isPartial ? "partial" : "full",
-    period: type === "am" || type === "pm" ? type : null,
     startTime: isPartial ? $("iStart").value : null,
     endTime: isPartial ? $("iEnd").value : null,
     note: $("iNote").value.trim()

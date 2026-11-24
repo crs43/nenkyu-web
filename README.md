@@ -69,7 +69,6 @@ JSON ファイルをクラウドストレージの同期フォルダに置くこ
       "id": "uuid",
       "date": "2026-04-22",
       "type": "partial",
-      "period": "am",
       "startTime": "09:00",
       "endTime": "12:00",
       "note": "通院"
@@ -82,15 +81,13 @@ JSON ファイルをクラウドストレージの同期フォルダに置くこ
 - `settings`: 年休計算に使う設定
   - `workStart` / `workEnd`: 始業・終業時刻。午前休・午後休と時間休のプリセットに使用
 - `entries`: 取得履歴
-- `period`: `am`（午前休）/ `pm`（午後休）。時間休の場合は省略可
 - `note`: 各記録の補足メモ
 
 補足:
 
-- 旧形式の `records` 配列も読み込み可能です
 - `type` は `full` または `partial`
 - 午前休・午後休も内部的には `type: "partial"` です
-- `period` がない古いデータは、始業・終業・昼休憩の時刻と一致する場合に午前休・午後休として表示します
+
 - `full` の場合は `startTime` / `endTime` は `null` でも構いません
 
 ## 保存と復元
