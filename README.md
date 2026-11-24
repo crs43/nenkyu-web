@@ -178,4 +178,4 @@ JSON ファイルをクラウドストレージの同期フォルダに置くこ
 
 ローカル完結の個人用途として適合する。
 クラウドストレージの同期フォルダを活用することで、デバイス間同期も無理なく実現できる。
-スマホからの編集は別途 Flutter アプリ（[Htm43/nenkyu-flutter](https://github.com/Htm43/nenkyu-flutter)）で対応中。
+スマホからの編集は別途 Flutter アプリ（[crs43/nenkyu-flutter](https://github.com/crs43/nenkyu-flutter)）で対応中。
