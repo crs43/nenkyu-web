@@ -465,6 +465,10 @@ select {
   color: var(--text-muted);
 }
 
+.hint.is-warn {
+  color: var(--warn);
+}
+
 .month-chart {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(42px, 1fr));
@@ -534,6 +538,100 @@ select {
 
 .form-grid-compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quick-patterns {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.quick-patterns.is-hidden,
+.range-mode.is-hidden {
+  display: none;
+}
+
+.quick-patterns-label,
+.range-mode-label {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.quick-pattern-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pattern-chip {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(31, 106, 82, 0.2);
+  border-radius: 999px;
+  background: rgba(31, 106, 82, 0.06);
+  color: var(--accent-strong);
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.pattern-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(31, 106, 82, 0.38);
+  background: rgba(31, 106, 82, 0.12);
+}
+
+.pattern-chip:focus-visible,
+.range-mode-btn:focus-visible {
+  outline: 2px solid rgba(31, 106, 82, 0.55);
+  outline-offset: 2px;
+}
+
+.range-mode {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.range-mode-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid rgba(105, 84, 57, 0.14);
+  border-radius: 999px;
+  background: rgba(237, 230, 220, 0.55);
+}
+
+.range-mode-btn {
+  min-height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.range-mode-btn[aria-pressed="true"] {
+  background: var(--surface-strong);
+  color: var(--accent-strong);
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(71, 53, 35, 0.08);
+}
+
+.settings-section-title {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .fg {
@@ -845,6 +943,10 @@ select {
 
 .modal {
   width: min(480px, 100%);
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .modal-head,
@@ -865,6 +967,8 @@ select {
   flex-direction: column;
   gap: 16px;
   padding: 24px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .modal-footer {

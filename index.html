@@ -119,6 +119,19 @@
           <button class="btn btn-secondary" id="btnCancelBanner">編集をやめる</button>
         </div>
         <input type="hidden" id="editId">
+        <div class="quick-patterns is-hidden" id="quickPatterns">
+          <span class="quick-patterns-label">よく使う</span>
+          <div class="quick-pattern-list" id="quickPatternList"></div>
+        </div>
+        <div class="range-mode is-hidden" id="rangeModeRow">
+          <span class="range-mode-label">時間帯</span>
+          <div class="range-mode-group" role="group" aria-label="時間帯の指定方法">
+            <button type="button" class="range-mode-btn" data-range-mode="start" aria-pressed="false">始業から</button>
+            <button type="button" class="range-mode-btn" data-range-mode="end" aria-pressed="false">終業まで</button>
+            <button type="button" class="range-mode-btn" data-range-mode="custom" aria-pressed="false">自由指定</button>
+          </div>
+        </div>
+        <input type="hidden" id="iRangeMode" value="start">
         <div class="form-grid">
           <div class="fg">
             <label for="iDate">取得日</label>
@@ -128,6 +141,8 @@
             <label for="iType">区分</label>
             <select id="iType">
               <option value="full">全休</option>
+              <option value="am">午前休</option>
+              <option value="pm">午後休</option>
               <option value="partial">時間休</option>
             </select>
           </div>
@@ -193,6 +208,18 @@
           <label for="sDeadlineInput">有効期限</label>
           <input type="date" id="sDeadlineInput">
         </div>
+        <p class="settings-section-title">所定勤務</p>
+        <div class="form-grid form-grid-compact">
+          <div class="fg">
+            <label for="sWorkStart">始業</label>
+            <input type="time" id="sWorkStart" value="09:00">
+          </div>
+          <div class="fg">
+            <label for="sWorkEnd">終業</label>
+            <input type="time" id="sWorkEnd" value="17:00">
+          </div>
+        </div>
+        <div class="hint" id="workHoursHint"></div>
         <label class="check-row">
           <input type="checkbox" id="sDeductLunch">
           <span>時間休の計算で昼休憩を差し引く</span>
@@ -207,6 +234,8 @@
             <input type="time" id="sLunchEnd" value="13:00">
           </div>
         </div>
+        <div class="hint">午前休は「始業〜昼休憩開始」、午後休は「昼休憩終了〜終業」で計算します。</div>
+        <div class="form-err" id="sSettingsErr" aria-live="polite"></div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btnModalCancel">キャンセル</button>

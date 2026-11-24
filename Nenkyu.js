@@ -6,7 +6,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   deadline: "",
   deductLunchBreak: false,
   lunchStart: "12:00",
-  lunchEnd: "13:00"
+  lunchEnd: "13:00",
+  workStart: "09:00",
+  workEnd: "17:00"
 });
 
 const DB_NAME = "nenkyu_manager";
@@ -26,6 +28,8 @@ const app = {
   persistQueue: Promise.resolve()
 };
 
+let quickPatterns = [];
+
 function createDefaultState() {
   return {
     settings: { ...DEFAULT_SETTINGS },
@@ -42,6 +46,13 @@ function toMinutes(hhmm) {
   const [hour, minute] = hhmm.split(":").map(Number);
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
   return hour * 60 + minute;
+}
+
+function minutesToHHMM(minutes) {
+  const total = Math.round(minutes);
+  const hour = Math.floor(total / 60);
+  const minute = total % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 function formatHours(hours) {
@@ -90,6 +101,31 @@ function calcRecordHours(record) {
   return calcPartialHours(record.startTime, record.endTime);
 }
 
+function getRecordPeriod(record) {
+  if (record.type !== "partial") return null;
+  if (record.period === "am" || record.period === "pm") return record.period;
+
+  const settings = app.state.settings;
+  if (record.startTime === settings.workStart && record.endTime === settings.lunchStart) return "am";
+  if (record.startTime === settings.lunchEnd && record.endTime === settings.workEnd) return "pm";
+  return null;
+}
+
+function getRecordTypeLabel(record) {
+  if (record.type === "full") return "全休";
+  const period = getRecordPeriod(record);
+  if (period === "am") return "午前休";
+  if (period === "pm") return "午後休";
+  return "時間休";
+}
+
+function inferRangeMode(record) {
+  if (record.type !== "partial" || getRecordPeriod(record)) return "start";
+  if (record.startTime === app.state.settings.workStart) return "start";
+  if (record.endTime === app.state.settings.workEnd) return "end";
+  return "custom";
+}
+
 function getAcquiredHours() {
   return app.state.records.reduce((total, record) => total + calcRecordHours(record), 0);
 }
@@ -127,21 +163,45 @@ function normalizeSettings(rawSettings = {}) {
     totalDays = Number(rawSettings.totalHours) / safeHoursPerDay;
   }
 
+  const deductLunchBreak = Boolean(rawSettings.deductLunchBreak ?? DEFAULT_SETTINGS.deductLunchBreak);
+  const lunchStart = rawSettings.lunchStart ?? DEFAULT_SETTINGS.lunchStart;
+  const lunchEnd = rawSettings.lunchEnd ?? DEFAULT_SETTINGS.lunchEnd;
+  const workStart = rawSettings.workStart || DEFAULT_SETTINGS.workStart;
+
+  let workEnd = rawSettings.workEnd;
+  if (!workEnd) {
+    // 旧データには始業・終業がないため、1日の労働時間と昼休憩から終業時刻を補完する
+    const startMinutes = toMinutes(workStart) ?? toMinutes(DEFAULT_SETTINGS.workStart);
+    const lunchMinutes = deductLunchBreak
+      ? Math.max(0, (toMinutes(lunchEnd) ?? 0) - (toMinutes(lunchStart) ?? 0))
+      : 0;
+    const endMinutes = startMinutes + safeHoursPerDay * 60 + lunchMinutes;
+    workEnd = endMinutes > 0 && endMinutes < 1440 ? minutesToHHMM(endMinutes) : DEFAULT_SETTINGS.workEnd;
+  }
+
   return {
     totalDays: Number.isFinite(totalDays) ? totalDays : DEFAULT_SETTINGS.totalDays,
     hoursPerDay: safeHoursPerDay,
     deadline: rawSettings.deadline ?? DEFAULT_SETTINGS.deadline,
-    deductLunchBreak: Boolean(rawSettings.deductLunchBreak ?? DEFAULT_SETTINGS.deductLunchBreak),
-    lunchStart: rawSettings.lunchStart ?? DEFAULT_SETTINGS.lunchStart,
-    lunchEnd: rawSettings.lunchEnd ?? DEFAULT_SETTINGS.lunchEnd
+    deductLunchBreak,
+    lunchStart,
+    lunchEnd,
+    workStart,
+    workEnd
   };
 }
 
 function normalizeRecord(record) {
+  const type = record.type === "partial" ? "partial" : "full";
+  const period = type === "partial" && (record.period === "am" || record.period === "pm")
+    ? record.period
+    : null;
+
   return {
     id: record.id ?? crypto.randomUUID(),
     date: record.date ?? todayStr(),
-    type: record.type === "partial" ? "partial" : "full",
+    type,
+    period,
     startTime: record.startTime ?? null,
     endTime: record.endTime ?? null,
     note: record.note ?? record.memo ?? ""
@@ -170,6 +230,7 @@ function render() {
   renderSummary();
   renderChart();
   renderTable();
+  renderQuickPatterns();
 }
 
 function setValueWithClass(element, html, extraClass = "") {
@@ -317,7 +378,7 @@ function renderTable() {
     const record = records[i];
     const badge = record.type === "full"
       ? '<span class="badge badge-full">全休</span>'
-      : '<span class="badge badge-partial">時間休</span>';
+      : `<span class="badge badge-partial">${getRecordTypeLabel(record)}</span>`;
     const hours = `${formatHours(calcRecordHours(record))} h`;
     const timeRange = record.type === "partial"
       ? `${record.startTime ?? "-"} - ${record.endTime ?? "-"}`
@@ -360,6 +421,87 @@ function renderTable() {
   list.innerHTML = html;
 }
 
+function buildQuickPatterns() {
+  const patterns = new Map();
+
+  for (const record of app.state.records) {
+    if (record.type === "partial" && (!record.startTime || !record.endTime)) continue;
+
+    const key = [
+      record.type,
+      getRecordPeriod(record) ?? "",
+      record.startTime ?? "",
+      record.endTime ?? "",
+      (record.note ?? "").trim()
+    ].join("|");
+
+    const existing = patterns.get(key);
+    if (existing) {
+      existing.count += 1;
+      if (record.date > existing.latest) existing.latest = record.date;
+    } else {
+      patterns.set(key, { record, count: 1, latest: record.date });
+    }
+  }
+
+  return [...patterns.values()]
+    .sort((a, b) => b.count - a.count || b.latest.localeCompare(a.latest))
+    .slice(0, 3);
+}
+
+function quickPatternLabel(record) {
+  const note = (record.note ?? "").trim();
+  let detail;
+
+  if (record.type === "full") {
+    detail = "全休";
+  } else {
+    const period = getRecordPeriod(record);
+    detail = period === "am"
+      ? "午前休"
+      : period === "pm"
+        ? "午後休"
+        : `${record.startTime ?? "-"}-${record.endTime ?? "-"}`;
+  }
+
+  return note ? `${detail}・${note}` : detail;
+}
+
+function renderQuickPatterns() {
+  const wrap = $("quickPatterns");
+  const list = $("quickPatternList");
+  if (!wrap || !list) return;
+
+  const isEditing = Boolean($("editId").value);
+  quickPatterns = isEditing ? [] : buildQuickPatterns();
+
+  if (isEditing || !quickPatterns.length) {
+    wrap.classList.add("is-hidden");
+    list.innerHTML = "";
+    return;
+  }
+
+  wrap.classList.remove("is-hidden");
+  list.innerHTML = quickPatterns.map((pattern, index) => `
+    <button type="button" class="pattern-chip" data-pattern-index="${index}">${escapeHTML(quickPatternLabel(pattern.record))}</button>
+  `).join("");
+}
+
+function applyQuickPattern(record) {
+  $("iType").value = getRecordPeriod(record) ?? record.type;
+  $("iRangeMode").value = inferRangeMode(record);
+  $("iNote").value = record.note ?? "";
+  syncTypeInputs();
+
+  if (record.type === "partial") {
+    if (record.startTime) $("iStart").value = record.startTime;
+    if (record.endTime) $("iEnd").value = record.endTime;
+  }
+
+  $("formErr").textContent = "";
+  syncFormHint();
+}
+
 function setFormMode(mode) {
   const isEdit = mode === "edit";
   $("formTitle").textContent = isEdit ? "記録を編集" : "新しい記録を追加";
@@ -367,33 +509,135 @@ function setFormMode(mode) {
   $("btnCancel").style.display = isEdit ? "inline-flex" : "none";
   $("formCard").classList.toggle("is-editing", isEdit);
   $("editBanner").style.display = isEdit ? "flex" : "none";
+  renderQuickPatterns();
+}
+
+function applyTimeDefaultsForType(type, mode) {
+  const settings = app.state.settings;
+
+  if (type === "am") {
+    $("iStart").value = settings.workStart;
+    $("iEnd").value = settings.lunchStart;
+    return;
+  }
+
+  if (type === "pm") {
+    $("iStart").value = settings.lunchEnd;
+    $("iEnd").value = settings.workEnd;
+    return;
+  }
+
+  if (type !== "partial") return;
+
+  if (mode === "start") {
+    $("iStart").value = settings.workStart;
+    $("iEnd").value = settings.lunchStart;
+  } else if (mode === "end") {
+    $("iStart").value = settings.lunchEnd;
+    $("iEnd").value = settings.workEnd;
+  }
+}
+
+function syncRangeButtons() {
+  const mode = $("iRangeMode").value;
+  document.querySelectorAll("#rangeModeRow [data-range-mode]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.rangeMode === mode));
+  });
+}
+
+function syncFormHint() {
+  const type = $("iType").value;
+  const perDay = app.state.settings.hoursPerDay;
+
+  if (type === "full") {
+    $("formHint").textContent = `全休は 1日あたりの ${formatHours(perDay)}h を取得として計算します。`;
+    return;
+  }
+
+  const start = $("iStart").value;
+  const end = $("iEnd").value;
+  const hours = calcPartialHours(start, end);
+  const label = type === "am" ? "午前休" : type === "pm" ? "午後休" : "時間休";
+
+  if (start && end && hours > 0) {
+    $("formHint").textContent = `${label}: ${start}〜${end}（${formatHours(hours)}h）`;
+    return;
+  }
+
+  $("formHint").textContent = type === "partial"
+    ? "開始・終了時間から取得時間を自動計算します。"
+    : `${label}の時間設定を確認してください。`;
 }
 
 function syncTypeInputs() {
-  const isPartial = $("iType").value === "partial";
-  $("iStart").disabled = !isPartial;
-  $("iEnd").disabled = !isPartial;
-  $("formHint").textContent = isPartial
-    ? "開始・終了時間から取得時間を自動計算します。"
-    : "全休は 1 日あたりの設定時間をそのまま使用します。";
+  const type = $("iType").value;
+  const mode = $("iRangeMode").value;
+  const settings = app.state.settings;
+  const isPartial = type === "partial";
 
-  if (!isPartial) {
+  $("rangeModeRow").classList.toggle("is-hidden", !isPartial);
+
+  if (type === "full") {
     $("iStart").value = "";
     $("iEnd").value = "";
+    $("iStart").disabled = true;
+    $("iEnd").disabled = true;
+  } else if (type === "am") {
+    $("iStart").value = settings.workStart;
+    $("iEnd").value = settings.lunchStart;
+    $("iStart").disabled = true;
+    $("iEnd").disabled = true;
+  } else if (type === "pm") {
+    $("iStart").value = settings.lunchEnd;
+    $("iEnd").value = settings.workEnd;
+    $("iStart").disabled = true;
+    $("iEnd").disabled = true;
+  } else if (mode === "start") {
+    $("iStart").value = settings.workStart;
+    if (!$("iEnd").value) $("iEnd").value = settings.lunchStart;
+    $("iStart").disabled = true;
+    $("iEnd").disabled = false;
+  } else if (mode === "end") {
+    $("iEnd").value = settings.workEnd;
+    if (!$("iStart").value) $("iStart").value = settings.lunchEnd;
+    $("iStart").disabled = false;
+    $("iEnd").disabled = true;
+  } else {
+    $("iStart").disabled = false;
+    $("iEnd").disabled = false;
   }
 
+  syncRangeButtons();
   $("formErr").textContent = "";
+  syncFormHint();
+}
+
+function setRangeMode(mode) {
+  if (!["start", "end", "custom"].includes(mode)) return;
+  $("iRangeMode").value = mode;
+  applyTimeDefaultsForType("partial", mode);
+  syncTypeInputs();
+}
+
+function handleTypeChange() {
+  const type = $("iType").value;
+  if (type === "partial") {
+    applyTimeDefaultsForType(type, $("iRangeMode").value);
+  }
+  syncTypeInputs();
 }
 
 function resetForm() {
   $("editId").value = "";
   $("iDate").value = todayStr();
   $("iType").value = "full";
+  $("iRangeMode").value = "start";
   $("iStart").value = "";
   $("iEnd").value = "";
   $("iNote").value = "";
   $("editBannerTitle").textContent = "編集中";
   $("editBannerText").textContent = "";
+  $("sSettingsErr").textContent = "";
   syncTypeInputs();
   setFormMode("create");
 }
@@ -408,9 +652,9 @@ function validateForm() {
     return "取得日を入力してください。";
   }
 
-  if (type === "partial") {
+  if (type !== "full") {
     if (!start || !end) {
-      return "時間休では開始時間と終了時間が必要です。";
+      return "開始時間と終了時間を入力してください。";
     }
 
     const startMinutes = toMinutes(start);
@@ -425,7 +669,7 @@ function validateForm() {
     }
 
     if (partialHours > app.state.settings.hoursPerDay) {
-      return `時間休の ${formatHours(partialHours)}h が 1日あたりの ${formatHours(app.state.settings.hoursPerDay)}h を超えています。`;
+      return `取得時間の ${formatHours(partialHours)}h が 1日あたりの ${formatHours(app.state.settings.hoursPerDay)}h を超えています。`;
     }
   }
 
@@ -434,11 +678,13 @@ function validateForm() {
 
 function getFormData() {
   const type = $("iType").value;
+  const isPartial = type !== "full";
   return {
     date: $("iDate").value,
-    type,
-    startTime: type === "partial" ? $("iStart").value : null,
-    endTime: type === "partial" ? $("iEnd").value : null,
+    type: isPartial ? "partial" : "full",
+    period: type === "am" || type === "pm" ? type : null,
+    startTime: isPartial ? $("iStart").value : null,
+    endTime: isPartial ? $("iEnd").value : null,
     note: $("iNote").value.trim()
   };
 }
@@ -471,13 +717,21 @@ function startEdit(id) {
 
   $("editId").value = record.id;
   $("iDate").value = record.date;
-  $("iType").value = record.type;
-  $("iStart").value = record.startTime ?? "";
-  $("iEnd").value = record.endTime ?? "";
+  $("iType").value = getRecordPeriod(record) ?? record.type;
+  $("iRangeMode").value = inferRangeMode(record);
+  $("iStart").value = "";
+  $("iEnd").value = "";
   $("iNote").value = record.note ?? "";
   $("editBannerTitle").textContent = "この記録を編集中";
-  $("editBannerText").textContent = `${record.date} / ${record.type === "full" ? "全休" : "時間休"} を更新できます`;
+  $("editBannerText").textContent = `${record.date} / ${getRecordTypeLabel(record)} を更新できます`;
   syncTypeInputs();
+
+  if (record.type === "partial") {
+    if (record.startTime) $("iStart").value = record.startTime;
+    if (record.endTime) $("iEnd").value = record.endTime;
+    syncFormHint();
+  }
+
   setFormMode("edit");
   renderTable();
   $("formCard").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -506,6 +760,66 @@ function syncLunchInputs() {
   const enabled = $("sDeductLunch").checked;
   $("sLunchStart").disabled = !enabled;
   $("sLunchEnd").disabled = !enabled;
+  syncWorkHoursHint();
+}
+
+function syncWorkHoursHint() {
+  const hint = $("workHoursHint");
+  if (!hint) return;
+
+  hint.classList.remove("is-warn");
+  const start = toMinutes($("sWorkStart").value);
+  const end = toMinutes($("sWorkEnd").value);
+  const perDay = Number($("sPerDay").value);
+
+  if (start === null || end === null || end <= start) {
+    hint.textContent = "始業・終業時刻を確認してください。";
+    hint.classList.add("is-warn");
+    return;
+  }
+
+  let minutes = end - start;
+  if ($("sDeductLunch").checked) {
+    const lunchStart = toMinutes($("sLunchStart").value);
+    const lunchEnd = toMinutes($("sLunchEnd").value);
+    if (lunchStart !== null && lunchEnd !== null && lunchEnd > lunchStart) {
+      minutes -= Math.max(0, Math.min(end, lunchEnd) - Math.max(start, lunchStart));
+    }
+  }
+
+  const hours = Math.max(minutes, 0) / 60;
+  const base = `所定労働 ${formatHours(hours)}h`;
+
+  if (!Number.isFinite(perDay) || perDay <= 0) {
+    hint.textContent = base;
+    return;
+  }
+
+  const diff = Math.round((hours - perDay) * 100) / 100;
+  if (diff !== 0) hint.classList.add("is-warn");
+  hint.textContent = diff === 0
+    ? `${base}（1日あたりの時間と一致）`
+    : `${base}（1日あたりの ${formatHours(perDay)}h と ${formatHours(Math.abs(diff))}h ずれ）`;
+}
+
+function validateSettings() {
+  const start = toMinutes($("sWorkStart").value);
+  const end = toMinutes($("sWorkEnd").value);
+
+  if (start === null || end === null) {
+    return "始業・終業時刻を入力してください。";
+  }
+
+  if (end <= start) {
+    return "終業時刻は始業時刻より後にしてください。";
+  }
+
+  const perDay = Number($("sPerDay").value);
+  if (!Number.isFinite(perDay) || perDay <= 0) {
+    return "1日あたりの時間を入力してください。";
+  }
+
+  return "";
 }
 
 function openSettings() {
@@ -513,9 +827,12 @@ function openSettings() {
   $("sTotalDays").value = app.state.settings.totalDays;
   $("sPerDay").value = app.state.settings.hoursPerDay;
   $("sDeadlineInput").value = app.state.settings.deadline;
+  $("sWorkStart").value = app.state.settings.workStart;
+  $("sWorkEnd").value = app.state.settings.workEnd;
   $("sDeductLunch").checked = app.state.settings.deductLunchBreak;
   $("sLunchStart").value = app.state.settings.lunchStart;
   $("sLunchEnd").value = app.state.settings.lunchEnd;
+  $("sSettingsErr").textContent = "";
   syncLunchInputs();
   $("modalOverlay").classList.add("open");
 }
@@ -525,17 +842,28 @@ function closeSettings() {
 }
 
 async function saveSettings() {
+  const errorMessage = validateSettings();
+  $("sSettingsErr").textContent = errorMessage;
+  if (errorMessage) return;
+
   app.state.settings = normalizeSettings({
     totalDays: Number($("sTotalDays").value),
     hoursPerDay: Number($("sPerDay").value),
     deadline: $("sDeadlineInput").value,
     deductLunchBreak: $("sDeductLunch").checked,
     lunchStart: $("sLunchStart").value,
-    lunchEnd: $("sLunchEnd").value
+    lunchEnd: $("sLunchEnd").value,
+    workStart: $("sWorkStart").value,
+    workEnd: $("sWorkEnd").value
   });
 
   closeSettings();
   render();
+  if ($("editId").value) {
+    syncFormHint();
+  } else {
+    syncTypeInputs();
+  }
   await persist();
 }
 
@@ -719,12 +1047,40 @@ function bindEvents() {
   $("btnModalClose").addEventListener("click", closeSettings);
   $("btnModalCancel").addEventListener("click", closeSettings);
   $("btnSaveSettings").addEventListener("click", saveSettings);
-  $("sDeductLunch").addEventListener("change", syncLunchInputs);
+  $("sDeductLunch").addEventListener("change", () => {
+    $("sSettingsErr").textContent = "";
+    syncLunchInputs();
+  });
+  ["sWorkStart", "sWorkEnd", "sPerDay", "sLunchStart", "sLunchEnd"].forEach((id) => {
+    $(id).addEventListener("input", () => {
+      $("sSettingsErr").textContent = "";
+      syncWorkHoursHint();
+    });
+  });
 
   $("btnSubmit").addEventListener("click", submitForm);
   $("btnCancel").addEventListener("click", cancelEdit);
   $("btnCancelBanner").addEventListener("click", cancelEdit);
-  $("iType").addEventListener("change", syncTypeInputs);
+  $("iType").addEventListener("change", handleTypeChange);
+  ["iStart", "iEnd"].forEach((id) => {
+    $(id).addEventListener("input", () => {
+      $("formErr").textContent = "";
+      syncFormHint();
+    });
+  });
+
+  $("rangeModeRow").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-range-mode]");
+    if (!button) return;
+    setRangeMode(button.dataset.rangeMode);
+  });
+
+  $("quickPatternList").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-pattern-index]");
+    if (!button) return;
+    const pattern = quickPatterns[Number(button.dataset.patternIndex)];
+    if (pattern) applyQuickPattern(pattern.record);
+  });
 
   $("recTbody").addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-action]");
